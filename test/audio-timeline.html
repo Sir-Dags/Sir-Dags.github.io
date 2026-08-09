@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audio Timeline Test</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #05070f;
+    --surface: #0f1424;
+    --border: #1e2540;
+    --text: #e7e9f3;
+    --text-dim: #8b91ab;
+    --accent: #22d3ee;
+    --accent-2: #a78bfa;
+    --accent-3: #f472b6;
+    --gradient: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 55%, var(--accent-3) 100%);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: radial-gradient(ellipse at 50% -10%, #101731 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+    padding: 2rem;
+  }
+  h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.4rem;
+    font-weight: 700;
+  }
+  h1 span {
+    background: var(--gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .player {
+    width: min(900px, 100%);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem;
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+  }
+  #playBtn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: none;
+    background: var(--gradient);
+    color: #05070f;
+    font-size: 1.1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .times {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    letter-spacing: 0.02em;
+  }
+  #currentTime { color: var(--text); }
+
+  .scrubber-wrap {
+    position: relative;
+    margin-top: 1.75rem;
+  }
+
+  .scrubber {
+    height: 150px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    cursor: grab;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    border-radius: 10px;
+  }
+  .scrubber::-webkit-scrollbar { display: none; }
+  .scrubber.dragging { cursor: grabbing; }
+
+  .track {
+    position: relative;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.75rem;
+  }
+
+  .waveform {
+    display: flex;
+    align-items: center;
+    height: 64px;
+  }
+  .bar {
+    flex-shrink: 0;
+    width: 3px;
+    margin-right: 3px;
+    background: var(--text-dim);
+    border-radius: 2px;
+    opacity: 0.5;
+  }
+  .bar.played {
+    background: var(--accent);
+    opacity: 0.9;
+  }
+
+  .chips {
+    display: flex;
+    align-items: center;
+  }
+  .chip {
+    flex-shrink: 0;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    margin-right: -14px;
+    border: 2px solid var(--bg);
+  }
+
+  .playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    background: var(--gradient);
+    box-shadow: 0 0 10px var(--accent);
+    pointer-events: none;
+    z-index: 5;
+  }
+  .playhead-time {
+    position: absolute;
+    top: -1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 0.72rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 6;
+  }
+
+  .hint {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    max-width: 500px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Audio Timeline <span>Test</span></h1>
+
+<div class="player">
+  <div class="controls">
+    <button id="playBtn" aria-label="Play">&#9654;</button>
+    <span class="times"><span id="currentTime">0:00</span> / <span id="duration">3:00</span></span>
+  </div>
+
+  <div class="scrubber-wrap">
+    <div class="scrubber" id="scrubber">
+      <div class="track" id="track">
+        <div class="waveform" id="waveform"></div>
+        <div class="chips" id="chips"></div>
+      </div>
+    </div>
+    <div class="playhead">
+      <span class="playhead-time" id="playheadTime">0:00</span>
+    </div>
+  </div>
+</div>
+
+<p class="hint">Drag or scroll horizontally to scrub. Placeholder waveform and thumbnails, no real audio wired up yet.</p>
+
+<script>
+  const DURATION = 180; // seconds, placeholder 3:00 track
+  const BAR_COUNT = 260;
+  const CHIP_COUNT = 22;
+  const EDGE_PADDING = 300; // lets first/last content reach the center playhead
+
+  const scrubber = document.getElementById('scrubber');
+  const track = document.getElementById('track');
+  const waveform = document.getElementById('waveform');
+  const chips = document.getElementById('chips');
+  const playBtn = document.getElementById('playBtn');
+  const currentTimeEl = document.getElementById('currentTime');
+  const durationEl = document.getElementById('duration');
+  const playheadTimeEl = document.getElementById('playheadTime');
+
+  function formatTime(s) {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${String(sec).padStart(2, '0')}`;
+  }
+
+  durationEl.textContent = formatTime(DURATION);
+
+  // Generate a natural-looking waveform: smoothed randomness via layered sine + noise
+  const bars = [];
+  for (let i = 0; i < BAR_COUNT; i++) {
+    const t = i / BAR_COUNT;
+    const wave = Math.sin(t * Math.PI * 6) * 0.25 + Math.sin(t * Math.PI * 17) * 0.15;
+    const noise = Math.random() * 0.35;
+    const fade = Math.sin(t * Math.PI); // taper at both ends
+    const height = Math.max(0.08, Math.min(1, (0.45 + wave + noise) * fade));
+    const bar = document.createElement('div');
+    bar.className = 'bar';
+    bar.style.height = `${height * 100}%`;
+    waveform.appendChild(bar);
+    bars.push(bar);
+  }
+  waveform.style.paddingLeft = `${EDGE_PADDING}px`;
+  waveform.style.paddingRight = `${EDGE_PADDING}px`;
+
+  // Placeholder circular thumbnails with varied nebula-style gradients
+  const hueSets = [
+    ['#22d3ee', '#0f1424'], ['#a78bfa', '#0f1424'], ['#f472b6', '#0f1424'],
+    ['#22d3ee', '#a78bfa'], ['#f472b6', '#22d3ee'], ['#a78bfa', '#f472b6'],
+  ];
+  for (let i = 0; i < CHIP_COUNT; i++) {
+    const [c1, c2] = hueSets[i % hueSets.length];
+    const angle = Math.floor(Math.random() * 360);
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.style.background = `linear-gradient(${angle}deg, ${c1}, ${c2})`;
+    chips.appendChild(chip);
+  }
+  chips.style.paddingLeft = `${EDGE_PADDING}px`;
+  chips.style.paddingRight = `${EDGE_PADDING + 14}px`;
+
+  function maxScrollLeft() {
+    return scrubber.scrollWidth - scrubber.clientWidth;
+  }
+
+  function timeFromScroll() {
+    const max = maxScrollLeft();
+    return max > 0 ? (scrubber.scrollLeft / max) * DURATION : 0;
+  }
+
+  function updateDisplay() {
+    const time = timeFromScroll();
+    currentTimeEl.textContent = formatTime(time);
+    playheadTimeEl.textContent = formatTime(time);
+
+    const playedRatio = time / DURATION;
+    const playedCount = Math.round(playedRatio * BAR_COUNT);
+    bars.forEach((bar, i) => bar.classList.toggle('played', i < playedCount));
+  }
+
+  scrubber.addEventListener('scroll', () => {
+    requestAnimationFrame(updateDisplay);
+  });
+
+  // Click-and-drag panning (mouse + touch) on top of native scroll
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartScroll = 0;
+
+  function dragStart(clientX) {
+    isDragging = true;
+    isPlaying = false;
+    playBtn.innerHTML = '&#9654;';
+    scrubber.classList.add('dragging');
+    dragStartX = clientX;
+    dragStartScroll = scrubber.scrollLeft;
+  }
+  function dragMove(clientX) {
+    if (!isDragging) return;
+    scrubber.scrollLeft = dragStartScroll - (clientX - dragStartX);
+  }
+  function dragEnd() {
+    isDragging = false;
+    scrubber.classList.remove('dragging');
+  }
+
+  scrubber.addEventListener('mousedown', (e) => dragStart(e.clientX));
+  window.addEventListener('mousemove', (e) => dragMove(e.clientX));
+  window.addEventListener('mouseup', dragEnd);
+
+  scrubber.addEventListener('touchstart', (e) => {
+    isPlaying = false;
+    playBtn.innerHTML = '&#9654;';
+    dragStartX = e.touches[0].clientX;
+    dragStartScroll = scrubber.scrollLeft;
+  }, { passive: true });
+  scrubber.addEventListener('touchmove', (e) => {
+    scrubber.scrollLeft = dragStartScroll - (e.touches[0].clientX - dragStartX);
+  }, { passive: true });
+
+  // Play/pause: auto-advance scrollLeft at a constant rate to simulate playback.
+  // scrollLeft is rounded to whole pixels by the browser, so sub-pixel per-frame
+  // increments must accumulate in a separate float, not by reading scrollLeft back.
+  let isPlaying = false;
+  let lastFrameTime = null;
+  let scrollPos = 0;
+
+  function playLoop(now) {
+    if (!isPlaying) return;
+    if (lastFrameTime === null) lastFrameTime = now;
+    const dt = (now - lastFrameTime) / 1000;
+    lastFrameTime = now;
+
+    const max = maxScrollLeft();
+    const pxPerSecond = max / DURATION;
+    scrollPos = Math.min(max, scrollPos + pxPerSecond * dt);
+    scrubber.scrollLeft = scrollPos;
+
+    if (scrollPos >= max) {
+      isPlaying = false;
+      playBtn.innerHTML = '&#9654;';
+      return;
+    }
+    requestAnimationFrame(playLoop);
+  }
+
+  playBtn.addEventListener('click', () => {
+    isPlaying = !isPlaying;
+    playBtn.innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
+    if (isPlaying) {
+      scrollPos = scrubber.scrollLeft;
+      lastFrameTime = null;
+      requestAnimationFrame(playLoop);
+    }
+  });
+
+  // Any manual scroll (wheel/trackpad) should pause playback so the user regains control
+  scrubber.addEventListener('wheel', () => {
+    isPlaying = false;
+    playBtn.innerHTML = '&#9654;';
+  }, { passive: true });
+
+  updateDisplay();
+</script>
+</body>
+</html>
